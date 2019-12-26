@@ -3,7 +3,7 @@
 """Return if a domain is proected by a Web Application Firewall (WAF).
 
 Usage:
-  waf-checker inspect (--website-file FILE) [--export-json] [--export-csv] [-vd]
+  waf-checker inspect (--input-file FILE) [--export-json] [--export-csv] [-vd]
   waf-checker --version
   waf-checker --help
 
@@ -13,14 +13,16 @@ Modes of operation:
 Options:
   -h, --help                    Show this help message and exit.
   --version                     Display version info and exit.
-  -w FILE, --website-file FILE  List of websites / urls to check in JSON format. (../big_data_london_exhibitors.json)
+  -i FILE, --input-file FILE    List of websites / urls to check in JSON format. (../big_data_london_exhibitors.json)
   --export-json                 Exports results to a JSON file.
   --export-csv                  Exports results in CSV format.
   -v, --verbose                 Log to activity to STDOUT at log level INFO.
   -d, --debug                   Increase log level to 'DEBUG'. Implies '--verbose'.
 
 """
+import json
 import logging
+import os
 import docker
 
 from docopt import docopt
@@ -55,21 +57,36 @@ def get_logger(args):
 
     return rootLogger
 
+def load_websites_from_file(log, file_name):
+    log.debug("loading file '%s'" % file_name)
+    with open(file_name) as f:
+        websites = json.loads(f.read())
+    log.info("Found: %s webites to check." %(len(websites)))
+    return websites
+
 def main():
     args = docopt(__doc__, version='1.0')
     log = get_logger(args)
+
+    #load websites from file
+    log.info("Loading website urls...")
+    website_list = load_websites_from_file(log, 'in.json')
+
     client = docker.from_env()
-    env_vars = {'HOST':'https://osodevops.io'}
-#     volumes = {host_dir:
-#                    {'bind': container_dir, 'mode': 'rw'}},
-# environment = {'ETAS_MEM_GB': '14',
-#                'ETAS_LAUNCHER': '/run_dir',
-#                'ETAS_OUTPUT': '/run_dir/user_output',
-#                'ETAS_THREADS': '3'},
+    env_vars = {}
+
+    # setup docker using easy interfact
+    host_dir = os.getcwd()
+    container_dir = '/tmp'
+
+    targets = [ item['url'] for item in website_list ]
+    wafw00f_docker_args = ' '.join(targets) + ' --output /tmp/out.json'
 
     container = client.containers.run(
-        'osodevops/wafw00f',
-        'https://osodevops.io',
+        'osodevops/wafw00f:latest',
+        wafw00f_docker_args,
+        volumes = {host_dir:
+           {'bind': container_dir, 'mode': 'rw'}},
         detach=True,
         auto_remove=True,
         environment=env_vars)
